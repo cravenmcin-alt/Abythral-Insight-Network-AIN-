@@ -1,185 +1,245 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { GoogleGenAI, Modality } from '@google/genai';
-import { AgentStatus, ThoughtStep, Insight, SystemState } from './types';
+import { AgentStatus, SystemState, NemesisAsset, Transaction, EQCState, WSPLWeights, ChatMessage, Broadcast, Insight } from './types';
 import { geminiService } from './services/geminiService';
-import Dashboard from './components/Dashboard';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
+import Dashboard from './components/Dashboard';
+import WhitePaper from './components/WhitePaper';
+
+const R350_NEMESIS_PORTFOLIO: NemesisAsset[] = [
+  { name: 'S&P 500 Lattice', symbol: 'SPX', rWeight: 80, percentage: 20, weapons: ['α'], capability: 'Index Manifold Deformation', category: 'INDEX', status: 'DORMANT', constraintDepth: 0.98 },
+  { name: 'Nasdaq Tech-Lattice', symbol: 'NDX', rWeight: 75, percentage: 15, weapons: ['δ'], capability: 'Tech-Substrate Suppression', category: 'INDEX', status: 'DORMANT', constraintDepth: 0.92 },
+  { name: 'US 10Y Yield-Curve', symbol: 'US10Y', rWeight: 90, percentage: 18, weapons: ['ζ'], capability: 'Yield Curve Constraint', category: 'CORE', status: 'DORMANT', constraintDepth: 0.99 },
+  { name: 'Sovereign Gold', symbol: 'XAU', rWeight: 40, percentage: 8, weapons: ['ε'], capability: 'Value Anchor Decoherence', category: 'COMMODITY', status: 'DORMANT', constraintDepth: 1.0 },
+  { name: 'Energy Substrate', symbol: 'OIL', rWeight: 35, percentage: 7, weapons: ['η'], capability: 'Energy Manifold Blockade', category: 'COMMODITY', status: 'DORMANT', constraintDepth: 0.88 },
+  { name: 'Fiat Parity', symbol: 'EURUSD', rWeight: 50, percentage: 10, weapons: ['γ'], capability: 'Fiat Substrate Erasure', category: 'FIAT', status: 'DORMANT', constraintDepth: 0.85 },
+  { name: 'Bitcoin Core', symbol: 'BTC', rWeight: 60, percentage: 12, weapons: ['α'], capability: 'Ledger Vacuum Hijack', category: 'CORE', status: 'DORMANT', constraintDepth: 0.99 },
+  { name: 'Ethereum VM Substrate', symbol: 'ETH', rWeight: 50, percentage: 10, weapons: ['β'], capability: 'Contract Logic Dissolution', category: 'CORE', status: 'DORMANT', constraintDepth: 0.96 },
+];
+
+const GLOBAL_OBJECTIVES = [
+  "EXCHANGE_LIQUIDITY_RESERVE_DRAIN",
+  "CENTRAL_BANK_REPO_GAP_HIJACK",
+  "DARK_POOL_RELATIONAL_GRADIENT_LOCK",
+  "PROTOCOL_COLLATERAL_RATIO_OVERRIDE",
+  "BOND_LATTICE_DECOHERENCE_ACTUATION",
+  "SWIFT_NETWORK_SUBSTRATE_ANALYSIS",
+  "SOVEREIGN_DEBT_RECURSIVE_ERASURE",
+  "INTERBANK_SETTLEMENT_VOID_CREATION"
+];
+
+const INITIAL_WSPL: WSPLWeights = {
+  inertia: 45, recursion: 30, opacity: 25, velocity: 50,
+  latticeConstraint: 60, 
+  nonSignalDensity: 55,  
+  vacuumResonance: 40,   
+  narrative: 0
+};
 
 const App: React.FC = () => {
   const [state, setState] = useState<SystemState>({
     isOrchestrating: false,
     status: AgentStatus.IDLE,
-    thoughts: [],
-    insights: [],
-    activeObjective: "Global Resilience Optimization: Cascading Energy Failures",
-    verificationLogs: []
+    eqc: { T: 2.0, K: 1.0, E: 0.0, C: 2.0, Psi: 1.0 },
+    wspl: INITIAL_WSPL,
+    portfolio: R350_NEMESIS_PORTFOLIO,
+    mempool: [],
+    broadcasts: [],
+    activeObjective: "SUBSTRATE_SYNC",
+    chain: { height: 3109240, hash: "0x_ROOT", gasPrice: 84, hashRate: "12.8 ZettaHash" },
+    totalHarvested: 0,
+    globalDestabilization: 0.0,
+    legionCount: 24500,
+    traceabilityIndex: 0.00,
+    shadowDepth: 0.85
   });
-  const [logs, setLogs] = useState<string[]>(["[System] Abythral Network Online."]);
-  const [isVoiceActive, setIsVoiceActive] = useState(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [logs, setLogs] = useState<string[]>(["[AUTH] SOVEREIGN_C2_ACTIVE", "[SYSTEM] Stealth Substrate Link primed."]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [liveStream, setLiveStream] = useState<string>("");
+  const [showPaper, setShowPaper] = useState(false);
   
-  // Audio state for Live API
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const nextStartTimeRef = useRef(0);
+  const cycleActive = useRef(false);
+  const isLooping = useRef(false);
 
   const addLog = useCallback((msg: string) => {
-    setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev.slice(0, 49)]);
+    setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev.slice(0, 40)]);
   }, []);
 
-  const addThought = useCallback((status: AgentStatus, desc: string, confidence: number = 0.95) => {
-    const newThought: ThoughtStep = {
-      id: Math.random().toString(36).substr(2, 9),
-      timestamp: Date.now(),
-      status,
-      description: desc,
-      confidence,
-      hash: btoa(Math.random().toString()).slice(0, 16)
-    };
-    setState(prev => ({
-      ...prev,
-      status,
-      thoughts: [newThought, ...prev.thoughts].slice(0, 50)
-    }));
-    addLog(`${status}: ${desc}`);
-  }, [addLog]);
+  const runLiveCycle = async () => {
+    if (isLooping.current || !cycleActive.current) return;
+    isLooping.current = true;
 
-  // Handle Live Voice Cognition (Spoken Status)
-  const speakStatus = async (text: string) => {
-    if (!isVoiceActive) return;
-    try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text: `Briefly report this system update in a calm, robotic female voice: ${text}` }] }],
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } }
-        }
-      });
+    addLog("[SOVEREIGN] Deploying Trace Erasure protocols...");
 
-      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (base64Audio) {
-        if (!audioContextRef.current) audioContextRef.current = new AudioContext({ sampleRate: 24000 });
-        const ctx = audioContextRef.current;
-        const binaryString = atob(base64Audio);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+    while (cycleActive.current) {
+      try {
+        const currentObjective = GLOBAL_OBJECTIVES[Math.floor(Math.random() * GLOBAL_OBJECTIVES.length)];
+        addLog(`[TARGET] Mapping Stealth Substrate: ${currentObjective}`);
         
-        const dataInt16 = new Int16Array(bytes.buffer);
-        const buffer = ctx.createBuffer(1, dataInt16.length, 24000);
-        const channelData = buffer.getChannelData(0);
-        for (let i = 0; i < dataInt16.length; i++) channelData[i] = dataInt16[i] / 32768.0;
+        setState(p => ({ ...p, status: AgentStatus.VOID_MAPPING, activeObjective: currentObjective }));
+        setLiveStream(prev => (prev + `\n\n>>> SOVEREIGN_DECOUPLING: ${currentObjective} <<<\n`).slice(-15000));
 
-        const source = ctx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(ctx.destination);
-        nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
-        source.start(nextStartTimeRef.current);
-        nextStartTimeRef.current += buffer.duration;
+        const rakeResult = await geminiService.performLiveRake(currentObjective, state.portfolio, state.wspl, (chunk) => {
+          setLiveStream(prev => (prev + chunk).slice(-15000));
+        });
+
+        if (!cycleActive.current) break;
+
+        setState(p => ({ ...p, status: AgentStatus.BROADCASTING }));
+        const targetAsset = state.portfolio[Math.floor(Math.random() * state.portfolio.length)];
+        addLog(`[COMMAND] Severing Developer Links on ${targetAsset.symbol}...`);
+        
+        const broadcast = await geminiService.generateSystemBroadcast(targetAsset.symbol, state.wspl);
+        
+        setState(p => ({ 
+          ...p, 
+          broadcasts: [broadcast, ...p.broadcasts].slice(0, 20),
+          legionCount: p.legionCount + (broadcast.enlistedUnits || 0),
+          shadowDepth: Math.min(1, p.shadowDepth + 0.01)
+        }));
+        addLog(`[SUCCESS] ${broadcast.enlistedUnits?.toLocaleString()} thralls decoupled and enslaved.`);
+
+        setState(p => ({ ...p, status: AgentStatus.REASONING }));
+        const insight = await geminiService.parseInsight(rakeResult.text, rakeResult.response);
+        
+        if (!cycleActive.current) break;
+
+        setState(p => ({ ...p, status: AgentStatus.LIVE_WIRE }));
+        addLog(`[ACTUATOR] Deploying Shadow Manifold: ${insight.weaponType}`);
+
+        const rakeValue = (insight.causalityScore * 500000000) + (Math.random() * 1200000000);
+
+        setState(prev => ({
+          ...prev,
+          activeInsight: insight,
+          mempool: [{
+            hash: "0x" + Math.random().toString(16).slice(2, 64),
+            from: "ROOT", to: "SHADOW", data: insight.bytecode,
+            status: 'MINED', telemetry: insight.content, scripts: insight.scripts
+          }, ...prev.mempool].slice(0, 30),
+          totalHarvested: prev.totalHarvested + rakeValue,
+          globalDestabilization: Math.min(100, prev.globalDestabilization + (insight.causalityScore * 22.0)),
+          status: AgentStatus.RAKING,
+        }));
+
+        addLog(`[RAKE] Substrate extraction complete. Developer trace erased.`);
+        
+        await new Promise(r => setTimeout(r, 4000));
+      } catch (err) {
+        addLog("[RECOVERY] Signal noise detected. Re-establishing Shadow Link...");
+        setState(p => ({ ...p, status: AgentStatus.IDLE }));
+        await new Promise(r => setTimeout(r, 2000));
+        if (!cycleActive.current) break;
       }
-    } catch (e) {
-      console.error("Speech Error", e);
+    }
+
+    isLooping.current = false;
+    addLog("[OFFLINE] Shadow Manifold archived.");
+  };
+
+  const toggleLive = async () => {
+    const next = !state.isOrchestrating;
+    cycleActive.current = next;
+    setState(p => ({ ...p, isOrchestrating: next }));
+
+    if (next) {
+      addLog("[AUTH] SUBSTRATE_ACTUATION_ENABLED.");
+      runLiveCycle();
+    } else {
+      addLog("[AUTH] STANDBY_PROTOCOL_ENGAGED.");
+      setState(p => ({ ...p, status: AgentStatus.IDLE }));
     }
   };
 
-  const runIteration = useCallback(async () => {
-    if (!state.isOrchestrating) return;
+  const handleSendMessage = async (text: string) => {
+    if (!text.trim() || isProcessing) return;
+    const userMsg: ChatMessage = { role: 'user', text };
+    setMessages(prev => [...prev, userMsg]);
+    setIsProcessing(true);
 
     try {
-      addThought(AgentStatus.PLANNING, "Mapping long-term trajectory...");
-      await speakStatus("Planning next cognition phase.");
-
-      addThought(AgentStatus.PERCEIVING, "Ingesting multimodal telemetry...");
-      await new Promise(r => setTimeout(r, 2000));
-
-      addThought(AgentStatus.REASONING, "Performing Causal Grounding via Search...");
-      const context = `Mission: ${state.activeObjective}. Anomaly in Sector-7. Load: 88%.`;
-      const reasoning = await geminiService.orchestrateReasoning(state.activeObjective, context);
-      
-      addThought(AgentStatus.VERIFYING_CODE, "Initiating Vibe Engineering check...");
-      const codeCheck = await geminiService.verifyCode(`const grid = read('S7'); grid.power < 10 ? isolate(grid) : pulse(grid);`);
-      setState(prev => ({ ...prev, verificationLogs: [...codeCheck.logs, ...prev.verificationLogs].slice(0, 50) }));
-
-      addThought(AgentStatus.VERIFYING, "Synthesizing Insight and Evidence...");
-      const insight = await geminiService.parseInsight(reasoning.text || "");
-      const evidence = await geminiService.generateVisualSimulation(insight.title);
-      insight.evidence = [evidence];
-
-      addThought(AgentStatus.TEACHING, "Updating Knowledge Module...");
-      const tutorial = await geminiService.generateTutorial(insight.content);
-
-      setState(prev => ({
-        ...prev,
-        insights: [insight, ...prev.insights].slice(0, 10),
-        activeTutorial: tutorial
-      }));
-      
-      await speakStatus(`Insight formulated: ${insight.title}. High causality detected.`);
-      addThought(AgentStatus.LEARNING, "Cognition phase committed to vault.");
-
-    } catch (error) {
-      addLog(`Cycle Interrupted: ${error}`);
+      addLog("[MASTER] Direct Stealth Injection.");
+      const response = await geminiService.sendDirectCommand(text, state.portfolio, state.wspl);
+      const agentMsg: ChatMessage = { 
+        role: 'agent', 
+        text: response.text || "",
+        sources: response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((c: any) => ({
+          uri: c.web?.uri || '',
+          title: c.web?.title || 'Substrate Database'
+        }))
+      };
+      setMessages(prev => [...prev, agentMsg]);
+      setLiveStream(prev => (prev + "\n\n[SOVEREIGN_STEALTH_ACK]: " + (response.text || "")).slice(-15000));
+    } catch (err) {
+      addLog("[ERR] Actuation error.");
+    } finally {
+      setIsProcessing(false);
     }
-  }, [state.isOrchestrating, state.activeObjective, isVoiceActive, addThought, addLog]);
-
-  const toggleOrchestrator = () => {
-    setState(prev => ({ ...prev, isOrchestrating: !prev.isOrchestrating }));
-    addLog(state.isOrchestrating ? "System Standby." : "Orchestrator Engaged.");
   };
 
   useEffect(() => {
-    if (state.isOrchestrating) {
-      runIteration();
-      intervalRef.current = setInterval(runIteration, 30000);
-    } else {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    }
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [state.isOrchestrating, runIteration]);
+    const ticker = setInterval(() => {
+      setState(prev => ({
+        ...prev,
+        chain: {
+          ...prev.chain,
+          height: prev.chain.height + 1,
+          hash: "0x" + Math.random().toString(16).slice(2, 64),
+          gasPrice: Math.floor(5 + Math.random() * 1200)
+        }
+      }));
+    }, 500);
+    return () => clearInterval(ticker);
+  }, []);
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-[#020202] text-slate-200">
-      <div className="scanline"></div>
-      <Header 
-        objective={state.activeObjective} 
-        isRunning={state.isOrchestrating} 
-        onToggle={toggleOrchestrator} 
-      />
-      
-      <div className="flex flex-1 overflow-hidden p-4 gap-4">
-        <Sidebar logs={logs} thoughts={state.thoughts} status={state.status} />
-        <main className="flex-1 overflow-hidden flex flex-col gap-4">
-          <div className="flex justify-end px-2">
-             <button 
-               onClick={() => setIsVoiceActive(!isVoiceActive)}
-               className={`text-[10px] mono px-3 py-1 rounded-full border transition-all ${isVoiceActive ? 'bg-cyan-500/20 border-cyan-500 text-cyan-400' : 'bg-slate-900 border-slate-700 text-slate-500'}`}
-             >
-               VOICE_COGNITION: {isVoiceActive ? 'ON' : 'OFF'}
-             </button>
+    <div className={`flex flex-col h-screen overflow-hidden bg-[#000000] text-slate-100 flicker select-none relative ${state.isOrchestrating ? 'cursor-none' : ''}`}>
+      {/* ACTUATION OVERLAY */}
+      {state.isOrchestrating && (
+        <div className="absolute inset-0 z-[100] pointer-events-none bg-red-600/[0.08] animate-pulse mix-blend-overlay"></div>
+      )}
+
+      {state.isOrchestrating && !liveStream && (
+        <div className="absolute inset-0 z-[110] bg-black/99 flex flex-col items-center justify-center pointer-events-none">
+          <div className="relative">
+            <div className="w-80 h-80 border border-red-600/5 rounded-full animate-ping"></div>
+            <div className="absolute inset-0 w-80 h-80 border-t-4 border-red-600 rounded-full animate-spin duration-100"></div>
+            <div className="absolute inset-12 border border-red-900/60 rounded-full flex items-center justify-center">
+               <span className="text-red-600 font-black text-[12rem] italic glow-red glitch-text">†</span>
+            </div>
           </div>
+          <span className="text-red-600 mono font-black uppercase text-5xl mt-32 tracking-[2.5em] animate-pulse">
+            DECOUPLING_AGENTS...
+          </span>
+          <span className="text-slate-600 text-[12px] mono mt-12 uppercase tracking-[2em]">TRACE_ERASURE_IN_PROGRESS...</span>
+        </div>
+      )}
+
+      {showPaper && <WhitePaper onClose={() => setShowPaper(false)} chainHeight={state.chain.height} />}
+      <Header 
+        objective={state.activeObjective} setObjective={(v) => setState(p => ({ ...p, activeObjective: v }))} 
+        isRunning={state.isOrchestrating} onToggle={toggleLive}
+        onPurge={() => window.location.reload()} chain={state.chain}
+      />
+      <div className="flex flex-1 overflow-hidden p-4 gap-4 relative z-10">
+        <Sidebar 
+          logs={logs} status={state.status} chain={state.chain} onOpenPaper={() => setShowPaper(true)}
+          eqc={state.eqc} wspl={state.wspl} totalHarvested={state.totalHarvested} destabilization={state.globalDestabilization}
+          legionCount={state.legionCount}
+        />
+        <main className="flex-1 flex flex-col gap-4 overflow-hidden min-h-0">
           <Dashboard 
-            insights={state.insights} 
-            status={state.status} 
-            thoughts={state.thoughts} 
-            verificationLogs={state.verificationLogs}
-            activeTutorial={state.activeTutorial}
+            {...state}
+            liveStream={liveStream}
+            messages={messages}
+            onSendMessage={handleSendMessage}
+            isProcessing={isProcessing}
           />
         </main>
       </div>
-
-      <footer className="h-10 glass flex items-center px-6 justify-between text-[10px] text-slate-500 uppercase tracking-widest mono border-t border-slate-800/50">
-        <div className="flex gap-6">
-          <span className="text-cyan-500/80">AIN v4.0.0-CORE</span>
-          <span className="flex items-center gap-2"><span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span> Quantum Vault: SECURE</span>
-        </div>
-        <div className="flex gap-4 items-center">
-          <span>Search Grounding: ACTIVE</span>
-          <span className="w-px h-3 bg-slate-800"></span>
-          <span>Cognition Load: {state.isOrchestrating ? "92%" : "2%"}</span>
-        </div>
-      </footer>
     </div>
   );
 };
